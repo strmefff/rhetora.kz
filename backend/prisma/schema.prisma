@@ -1,0 +1,253 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  password     String
+  name         String
+  avatar       String?       // Сжатое фото профиля (Base64)
+  telegram     String?       // Ник в Telegram (без @)
+  organization String?       // Клуб / учебное заведение
+  city         String?       // Город
+  role         String        @default("ORGANIZER") // SUPERADMIN, ORGANIZER, JUDGE, PARTICIPANT
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  tournaments  Tournament[]
+  judges       Judge[]
+  participants Participant[]
+}
+
+model Tournament {
+  id           String        @id @default(uuid())
+  name         String
+  description  String?
+  city         String?
+  location     String?
+  startDate    DateTime
+  endDate      DateTime
+  format       String        @default("BP") // BP (Британский парламентский), WSDC (Всемирный школьный), LD (Линкольн — Дуглас)
+  roundsCount  Int           @default(5)
+  status       String        @default("PREPARATION") // PREPARATION, REGISTRATION, ACTIVE, COMPLETED, ARCHIVED
+  
+  organizerId  String
+  organizer    User          @relation(fields: [organizerId], references: [id])
+
+  participants Participant[]
+  teams        Team[]
+  judges       Judge[]
+  rooms        Room[]
+  rounds       Round[]       // Связь с раундами турнира
+
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Round {
+  id           String      @id @default(uuid())
+  tournamentId String
+  tournament   Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  
+  number       Int         // Автоматический порядковый номер (1, 2, 3...)
+  name         String      // Название (например, "Отборочный раунд 1", "Финал")
+  motion       String?     // 👈 Добавь эту строчку (резолюция раунда)
+  type         String      // PRELIMINARY, QUARTERFINAL, SEMIFINAL, GRAND_FINAL
+  format       String      // BP, WSDC, LD
+  duration     Int         @default(60) // Продолжительность в минутах
+  dateTime     DateTime?   // Дата и время (может быть null)
+  status       String      @default("PLANNED") // PLANNED, ACTIVE, COMPLETED, CANCELLED
+  
+  matches      Match[]     // Связь с дебатами (жеребьёвкой) этого раунда
+
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([tournamentId])
+}
+
+model Participant {
+  id            String         @id @default(uuid())
+  tournamentId  String
+  tournament    Tournament     @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  userId        String?
+  user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  firstName     String
+  lastName      String
+  email         String
+  organization  String?
+  city          String?
+
+  teamId        String?
+  team          Team?          @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  matchTeams    MatchTeam[]    // Связь с позициями в жеребьёвке (для ЛД)
+  speakerScores SpeakerScore[] // Индивидуальные спикерские баллы в бюллетенях
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@unique([tournamentId, email])
+}
+
+model Team {
+  id           String        @id @default(uuid())
+  tournamentId String
+  tournament   Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  
+  name         String
+  organization String?
+  city         String?
+  coach        String?
+  seed         Int           @default(0)
+  
+  totalPoints  Float         @default(0)
+  totalSpeaker Float         @default(0)
+
+  members      Participant[]
+  matchTeams   MatchTeam[]   // Связь с позициями в жеребьёвке (для ВШФ и БПФ)
+
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([tournamentId, name])
+}
+
+model Judge {
+  id           String      @id @default(uuid())
+  tournamentId String
+  tournament   Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  userId       String?
+  user         User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  name         String
+  email        String?
+  accessCode   String?     @unique // Персональный код/токен для входа по ссылке без пароля
+  organization String?
+  experience   String?     
+  category     String      @default("PANELLIST") // CHAIR, PANELLIST, TRAINEE
+  rating       Float       @default(5.0)         
+
+  matchJudges  MatchJudge[] // Связь с судейством в конкретных комнатах
+
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model Room {
+  id           String      @id @default(uuid())
+  tournamentId String
+  tournament   Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  name         String      
+  building     String?     
+  floor        Int?        
+  capacity     Int         @default(20)
+
+  matches      Match[]     // Связь с дебатами, проходящими в этой комнате
+
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([tournamentId, name, building])
+}
+
+// ==========================================
+// МОДЕЛИ ДЛЯ ЖЕРЕБЬЁВКИ (DRAW SYSTEM)
+// ==========================================
+
+model Match {
+  id        String   @id @default(uuid())
+  roundId   String
+  round     Round    @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  
+  roomId    String?
+  room      Room?    @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  teams     MatchTeam[]
+  judges    MatchJudge[]
+
+  status    String   @default("DRAFT") // DRAFT, PUBLISHED
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MatchTeam {
+  id            String   @id @default(uuid())
+  matchId       String
+  match         Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  
+  // Для ВШФ и БПФ
+  teamId        String?
+  team          Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  // Для ЛД (индивидуальный формат)
+  participantId String?
+  participant   Participant? @relation(fields: [participantId], references: [id], onDelete: SetNull)
+
+  // Позиция: GOV, OPP (ВШФ) | OG, OO, CG, CO (БПФ) | AFF, NEG (ЛД)
+  position      String   
+
+  @@unique([matchId, position])
+}
+
+model MatchJudge {
+  id        String   @id @default(uuid())
+  matchId   String
+  match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  
+  judgeId   String
+  judge     Judge    @relation(fields: [judgeId], references: [id], onDelete: Cascade)
+  
+  isChair   Boolean  @default(false) // Главный судья (Chair) или боковой (Panellist)
+  ballot    Ballot?  // Уникальный бюллетень судьи для этого назначения
+
+  @@unique([matchId, judgeId])
+}
+
+// ==========================================
+// ИНФРАСТРУКТУРА БЮЛЛЕТЕНЕЙ (BALLOTS)
+// ==========================================
+
+model Ballot {
+  id            String         @id @default(uuid())
+  matchJudgeId  String         @unique // Защита от дубликатов бюллетеней на уровне БД
+  matchJudge    MatchJudge     @relation(fields: [matchJudgeId], references: [id], onDelete: Cascade)
+
+  status        String         @default("DRAFT") // DRAFT, SUBMITTED
+  draftData     String?        // JSON-строка черновика для последующей форматной логики (WSDC / BP / LD)
+  notes         String?        // Общее обоснование решения судьи
+
+  submittedAt   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  speakerScores SpeakerScore[]
+}
+
+model SpeakerScore {
+  id            String      @id @default(uuid())
+  ballotId      String
+  ballot        Ballot      @relation(fields: [ballotId], references: [id], onDelete: Cascade)
+
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  role          String?     // Спикерская позиция (будет задаваться в форматных модулях)
+  score         Float?      // Балл спикера
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([ballotId, participantId])
+}
