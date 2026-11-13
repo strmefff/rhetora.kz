@@ -2,10 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Gavel, ArrowRight, RefreshCw, AlertCircle } from 'lucide-react';
 import { API_BASE } from '../config/api';
+import { useAuth } from '../context/AuthContext';
 
 export const JudgeMagicEntryPage = () => {
   const { code: urlCode } = useParams<{ code?: string }>();
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const [code, setCode] = useState(urlCode || '');
   const [loading, setLoading] = useState(Boolean(urlCode));
@@ -28,9 +30,8 @@ export const JudgeMagicEntryPage = () => {
       const data = await res.json();
 
       if (res.ok && data.token) {
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        window.location.hash = '#/judge/dashboard';
+        login(data.token, data.user);
+        navigate('/judge/dashboard', { replace: true });
       } else {
         setError(data.error || 'Недействительная ссылка или код судьи');
         setLoading(false);
