@@ -317,7 +317,11 @@ export const submitBallot = async (req: any, res: Response) => {
     }
 
     if (check.assignment.ballot?.status === 'SUBMITTED') {
-      return res.status(409).json({ error: 'Бюллетень уже был отправлен ранее' });
+      const existing = check.assignment.ballot;
+      return res.json({
+        ...existing,
+        parsedDraftData: existing.draftData ? JSON.parse(existing.draftData) : null,
+      });
     }
 
     const serializedDraft =
