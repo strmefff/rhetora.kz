@@ -15,18 +15,24 @@ const getTeamEmoji = (name: string) => {
   return TEAM_EMOJIS[Math.abs(hash) % TEAM_EMOJIS.length];
 };
 
+const escapeHtml = (value: unknown) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
 export const TeamsPage = () => {
   const location = useLocation();
   const tournamentId = location.pathname.split('/')[2];
   const { token } = useAuth();
   const { showError, showSuccess } = useToast();
 
+  const [tournamentName, setTournamentName] = useState('');
   const [teams, setTeams] = useState<any[]>([]);
   const [participants, setParticipants] = useState<any[]>([]);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
-  // Состояние для модального окна просмотра участников команды
   const [selectedTeam, setSelectedTeam] = useState<any | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -39,14 +45,23 @@ export const TeamsPage = () => {
   const fetchData = async () => {
     if (!tournamentId) return;
     try {
-      const teamsRes = await fetch(`${API_BASE}/api/tournaments/${tournamentId}/teams`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (teamsRes.ok) setTeams(await teamsRes.json());
+      const [tourneyRes, teamsRes, partsRes] = await Promise.all([
+        fetch(`${API_BASE}/api/tournaments/${tournamentId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        fetch(`${API_BASE}/api/tournaments/${tournamentId}/teams`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        fetch(`${API_BASE}/api/tournaments/${tournamentId}/participants`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      ]);
 
-      const partsRes = await fetch(`${API_BASE}/api/tournaments/${tournamentId}/participants`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      if (tourneyRes.ok) {
+        const tourney = await tourneyRes.json();
+        setTournamentName(tourney.name || '');
+      }
+      if (teamsRes.ok) setTeams(await teamsRes.json());
       if (partsRes.ok) setParticipants(await partsRes.json());
     } catch (err: any) {
       showError('Ошибка загрузки данных', { message: err.message });
@@ -112,28 +127,248 @@ export const TeamsPage = () => {
     }
   };
 
-  const handlePrintPDF = () => {
-    window.print();
-  };
-
   const filteredTeams = teams.filter(t =>
     `${t.name} ${t.organization} ${t.coach}`.toLowerCase().includes(search.toLowerCase())
   );
 
+  const handlePrintPDF = () => {
+    const listToExport = search.trim() ? filteredTeams : teams;
+    const totalMembers = listToExport.reduce(
+      (acc, t) => acc + participants.filter(p => p.teamId === t.id).length,
+      0
+    );
+    const formattedDate = new Date().toLocaleDateString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+
+    const rowsHtml = listToExport.length === 0
+      ? `<tr><td colspan="5" style="padding: 16px; text-align: center; color: #64748b;">Список команд пуст</td></tr>`
+      : listToExport.map((t, idx) => {
+          const members = participants.filter(p => p.teamId === t.id);
+          const membersHtml = members.length === 0
+            ? '<span style="color: #94a3b8;">—</span>'
+            : members
+                .map((m, i) => `<div><span style="color:#64748b;">${i + 1}.</span> ${escapeHtml(m.firstName)} ${escapeHtml(m.lastName)}</div>`)
+                .join('');
+
+          return `
+            <tr class="${idx % 2 === 1 ? 'alt' : ''}">
+              <td class="num">${idx + 1}</td>
+              <td class="team">${escapeHtml(t.name)}</td>
+              <td>${t.organization ? escapeHtml(t.organization) : '<span style="color:#94a3b8;">—</span>'}</td>
+              <td>${t.coach ? escapeHtml(t.coach) : '<span style="color:#94a3b8;">—</span>'}</td>
+              <td class="members">${membersHtml}</td>
+            </tr>
+          `;
+        }).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>${escapeHtml(tournamentName || 'Список команд')}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 0;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+      color: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+      font-size: 9.5pt;
+      line-height: 1.35;
+    }
+    .page-frame {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .page-margin-top {
+      height: 11mm;
+    }
+    .page-margin-bottom {
+      height: 11mm;
+    }
+    .page-body {
+      padding: 0 13mm;
+    }
+    .doc-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      padding-bottom: 7px;
+      margin-bottom: 10px;
+      border-bottom: 1.5px solid #0f172a;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: 14pt;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: #0f172a;
+    }
+    .doc-subtitle {
+      margin: 2px 0 0 0;
+      font-size: 8.5pt;
+      color: #64748b;
+    }
+    .doc-stats {
+      display: flex;
+      gap: 8px;
+      font-size: 8.5pt;
+      font-weight: 600;
+      color: #334155;
+    }
+    .stat-pill {
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 5px;
+      padding: 3px 8px;
+      white-space: nowrap;
+    }
+    table.teams {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid #cbd5e1;
+    }
+    table.teams thead {
+      display: table-header-group;
+    }
+    table.teams th {
+      background: #f1f5f9;
+      color: #1e293b;
+      font-size: 8pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      text-align: left;
+      padding: 6px 8px;
+      border-bottom: 1px solid #cbd5e1;
+      border-right: 1px solid #e2e8f0;
+    }
+    table.teams th:last-child,
+    table.teams td:last-child {
+      border-right: none;
+    }
+    table.teams tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    table.teams tr.alt td {
+      background: #f8fafc;
+    }
+    table.teams td {
+      padding: 5px 8px;
+      border-bottom: 1px solid #e2e8f0;
+      border-right: 1px solid #e2e8f0;
+      vertical-align: top;
+      color: #334155;
+    }
+    table.teams tbody tr:last-child td {
+      border-bottom: none;
+    }
+    td.num, th.num {
+      width: 28px;
+      text-align: center;
+      color: #64748b;
+      font-weight: 600;
+    }
+    td.team {
+      font-weight: 600;
+      color: #0f172a;
+      width: 23%;
+    }
+    td.members {
+      width: 31%;
+      color: #0f172a;
+    }
+    td.members div + div {
+      margin-top: 1px;
+    }
+  </style>
+</head>
+<body>
+  <table class="page-frame">
+    <thead><tr><td class="page-margin-top"></td></tr></thead>
+    <tbody>
+      <tr>
+        <td class="page-body">
+          <div class="doc-header">
+            <div>
+              <h1 class="doc-title">${escapeHtml(tournamentName || 'Список команд')}</h1>
+              <p class="doc-subtitle">Реестр команд турнира • ${formattedDate}</p>
+            </div>
+            <div class="doc-stats">
+              <span class="stat-pill">Команд: ${listToExport.length}</span>
+              <span class="stat-pill">Участников: ${totalMembers}</span>
+            </div>
+          </div>
+
+          <table class="teams">
+            <thead>
+              <tr>
+                <th class="num">№</th>
+                <th>Команда</th>
+                <th>Организация</th>
+                <th>Тренер</th>
+                <th>Состав</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </td>
+      </tr>
+    </tbody>
+    <tfoot><tr><td class="page-margin-bottom"></td></tr></tfoot>
+  </table>
+</body>
+</html>`;
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (!doc || !iframe.contentWindow) {
+      document.body.removeChild(iframe);
+      return;
+    }
+
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => {
+        if (document.body.contains(iframe)) {
+          document.body.removeChild(iframe);
+        }
+      }, 1500);
+    }, 150);
+  };
+
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Стили для печати в PDF */}
-      <style>{`
-        @media print {
-          body * { visibility: hidden; }
-          #printable-pdf-area, #printable-pdf-area * { visibility: visible; }
-          #printable-pdf-area { position: absolute; left: 0; top: 0; width: 100%; padding: 20px; background: white; color: black; }
-          .no-print { display: none !important; }
-        }
-      `}</style>
-
       {/* Верхняя панель управления */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 no-print">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Команды турнира</h2>
           <p className="text-sm text-slate-500">Всего зарегистрировано команд: {teams.length}</p>
@@ -155,7 +390,7 @@ export const TeamsPage = () => {
       </div>
 
       {/* Поиск */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm no-print">
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
         <div className="relative">
           <Search className="absolute left-3.5 top-3 text-slate-400" size={18} />
           <input
@@ -169,7 +404,7 @@ export const TeamsPage = () => {
       </div>
 
       {/* Основная таблица на экране */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden no-print">
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
@@ -220,54 +455,9 @@ export const TeamsPage = () => {
         </table>
       </div>
 
-      {/* СКРЫТЫЙ БЛОК ДЛЯ ПЕЧАТИ В PDF (Красивый официальный реестр) */}
-      <div id="printable-pdf-area" className="hidden print:block font-sans">
-        <div className="mb-6 border-b pb-4">
-          <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-900">Официальный реестр команд</h1>
-          <p className="text-sm text-slate-600 mt-1">Турнирная платформа Rhetora • Сформировано {new Date().toLocaleDateString('ru-RU')}</p>
-          <p className="text-sm font-semibold text-slate-800 mt-2">Всего команд: {teams.length}</p>
-        </div>
-
-        <table className="w-full text-left border-collapse border border-slate-300 text-xs">
-          <thead>
-            <tr className="bg-slate-100 text-slate-800 border-b border-slate-300">
-              <th className="p-2.5 border-r border-slate-300 font-bold">№</th>
-              <th className="p-2.5 border-r border-slate-300 font-bold">Название команды</th>
-              <th className="p-2.5 border-r border-slate-300 font-bold">Организация / ВУЗ / Школа</th>
-              <th className="p-2.5 border-r border-slate-300 font-bold">Тренер</th>
-              <th className="p-2.5 font-bold">Состав участников</th>
-            </tr>
-          </thead>
-          <tbody>
-            {teams.map((t, idx) => {
-              const members = participants.filter(p => p.teamId === t.id);
-              return (
-                <tr key={t.id} className="border-b border-slate-200">
-                  <td className="p-2.5 border-r border-slate-200 text-center font-medium">{idx + 1}</td>
-                  <td className="p-2.5 border-r border-slate-200 font-bold text-slate-900">{t.name}</td>
-                  <td className="p-2.5 border-r border-slate-200 text-slate-700">{t.organization || '—'}</td>
-                  <td className="p-2.5 border-r border-slate-200 text-slate-700">{t.coach || '—'}</td>
-                  <td className="p-2.5 text-slate-800">
-                    {members.length === 0 ? (
-                      <span className="text-slate-400 italic">Нет участников</span>
-                    ) : (
-                      members.map((m, mIdx) => (
-                        <div key={m.id} className="py-0.5">
-                          {mIdx + 1}. {m.firstName} {m.lastName}
-                        </div>
-                      ))
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
       {/* Модальное окно состава команды */}
       {selectedTeam && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 no-print">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border overflow-hidden">
             <div className="flex justify-between items-center p-5 border-b bg-slate-50">
               <div className="flex items-center gap-2">
@@ -306,7 +496,7 @@ export const TeamsPage = () => {
 
       {/* Модальное окно создания команды */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 no-print">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md border overflow-hidden">
             <div className="flex justify-between items-center p-5 border-b">
               <h3 className="font-bold text-lg text-slate-900">Создание команды</h3>
