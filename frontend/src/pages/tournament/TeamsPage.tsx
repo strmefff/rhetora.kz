@@ -1,7 +1,7 @@
 import { API_BASE } from "../../config/api";
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Plus, Search, Trash2, X, Users, Eye } from 'lucide-react';
+import { Plus, Search, Trash2, X, Users, Printer } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 
@@ -39,13 +39,11 @@ export const TeamsPage = () => {
   const fetchData = async () => {
     if (!tournamentId) return;
     try {
-      // 1. Загружаем команды
       const teamsRes = await fetch(`${API_BASE}/api/tournaments/${tournamentId}/teams`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (teamsRes.ok) setTeams(await teamsRes.json());
 
-      // 2. Загружаем участников, чтобы знать, кто в какой команде
       const partsRes = await fetch(`${API_BASE}/api/tournaments/${tournamentId}/participants`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -114,26 +112,50 @@ export const TeamsPage = () => {
     }
   };
 
+  const handlePrintPDF = () => {
+    window.print();
+  };
+
   const filteredTeams = teams.filter(t =>
     `${t.name} ${t.organization} ${t.coach}`.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* Стили для печати в PDF */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #printable-pdf-area, #printable-pdf-area * { visibility: visible; }
+          #printable-pdf-area { position: absolute; left: 0; top: 0; width: 100%; padding: 20px; background: white; color: black; }
+          .no-print { display: none !important; }
+        }
+      `}</style>
+
+      {/* Верхняя панель управления */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 no-print">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Команды турнира</h2>
           <p className="text-sm text-slate-500">Всего зарегистрировано команд: {teams.length}</p>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="inline-flex items-center gap-2 bg-rhetora-teal hover:bg-sky-600 text-white font-medium px-4 py-2 rounded-xl text-sm transition shadow-sm"
-        >
-          <Plus size={18} /> Добавить команду
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={handlePrintPDF}
+            className="inline-flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-medium px-4 py-2 rounded-xl text-sm transition shadow-sm"
+          >
+            <Printer size={16} /> Скачать PDF
+          </button>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="inline-flex items-center gap-2 bg-rhetora-teal hover:bg-sky-600 text-white font-medium px-4 py-2 rounded-xl text-sm transition shadow-sm"
+          >
+            <Plus size={18} /> Добавить команду
+          </button>
+        </div>
       </div>
 
-      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+      {/* Поиск */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm no-print">
         <div className="relative">
           <Search className="absolute left-3.5 top-3 text-slate-400" size={18} />
           <input
@@ -146,7 +168,8 @@ export const TeamsPage = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+      {/* Основная таблица на экране */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden no-print">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
@@ -166,7 +189,6 @@ export const TeamsPage = () => {
               </tr>
             ) : (
               filteredTeams.map(t => {
-                // Считаем участников этой команды
                 const teamMembers = participants.filter(p => p.teamId === t.id);
                 return (
                   <tr key={t.id} className="hover:bg-slate-50/60 transition">
@@ -198,9 +220,54 @@ export const TeamsPage = () => {
         </table>
       </div>
 
+      {/* СКРЫТЫЙ БЛОК ДЛЯ ПЕЧАТИ В PDF (Красивый официальный реестр) */}
+      <div id="printable-pdf-area" className="hidden print:block font-sans">
+        <div className="mb-6 border-b pb-4">
+          <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-900">Официальный реестр команд</h1>
+          <p className="text-sm text-slate-600 mt-1">Турнирная платформа Rhetora • Сформировано {new Date().toLocaleDateString('ru-RU')}</p>
+          <p className="text-sm font-semibold text-slate-800 mt-2">Всего команд: {teams.length}</p>
+        </div>
+
+        <table className="w-full text-left border-collapse border border-slate-300 text-xs">
+          <thead>
+            <tr className="bg-slate-100 text-slate-800 border-b border-slate-300">
+              <th className="p-2.5 border-r border-slate-300 font-bold">№</th>
+              <th className="p-2.5 border-r border-slate-300 font-bold">Название команды</th>
+              <th className="p-2.5 border-r border-slate-300 font-bold">Организация / ВУЗ / Школа</th>
+              <th className="p-2.5 border-r border-slate-300 font-bold">Тренер</th>
+              <th className="p-2.5 font-bold">Состав участников</th>
+            </tr>
+          </thead>
+          <tbody>
+            {teams.map((t, idx) => {
+              const members = participants.filter(p => p.teamId === t.id);
+              return (
+                <tr key={t.id} className="border-b border-slate-200">
+                  <td className="p-2.5 border-r border-slate-200 text-center font-medium">{idx + 1}</td>
+                  <td className="p-2.5 border-r border-slate-200 font-bold text-slate-900">{t.name}</td>
+                  <td className="p-2.5 border-r border-slate-200 text-slate-700">{t.organization || '—'}</td>
+                  <td className="p-2.5 border-r border-slate-200 text-slate-700">{t.coach || '—'}</td>
+                  <td className="p-2.5 text-slate-800">
+                    {members.length === 0 ? (
+                      <span className="text-slate-400 italic">Нет участников</span>
+                    ) : (
+                      members.map((m, mIdx) => (
+                        <div key={m.id} className="py-0.5">
+                          {mIdx + 1}. {m.firstName} {m.lastName}
+                        </div>
+                      ))
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
       {/* Модальное окно состава команды */}
       {selectedTeam && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 no-print">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border overflow-hidden">
             <div className="flex justify-between items-center p-5 border-b bg-slate-50">
               <div className="flex items-center gap-2">
@@ -239,7 +306,7 @@ export const TeamsPage = () => {
 
       {/* Модальное окно создания команды */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 no-print">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md border overflow-hidden">
             <div className="flex justify-between items-center p-5 border-b">
               <h3 className="font-bold text-lg text-slate-900">Создание команды</h3>
