@@ -1,7 +1,7 @@
 import { API_BASE } from "../../config/api";
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Plus, Search, Trash2, X, Users, Printer } from 'lucide-react';
+import { Plus, Search, Trash2, X, Users, Printer, Pencil, UserPlus } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 
@@ -22,6 +22,13 @@ const escapeHtml = (value: unknown) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
+interface EditableMember {
+  id: string;
+  firstName: string;
+  lastName: string;
+  isNew?: boolean;
+}
+
 export const TeamsPage = () => {
   const location = useLocation();
   const tournamentId = location.pathname.split('/')[2];
@@ -41,6 +48,18 @@ export const TeamsPage = () => {
     organization: '',
     coach: '',
   });
+
+  // Состояние модального окна редактирования команды
+  const [editingTeam, setEditingTeam] = useState<any | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: '',
+    organization: '',
+    coach: '',
+  });
+  const [editMembers, setEditMembers] = useState<EditableMember[]>([]);
+  const [removedMemberIds, setRemovedMemberIds] = useState<string[]>([]);
+  const [selectedFreeParticipantId, setSelectedFreeParticipantId] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const fetchData = async () => {
     if (!tournamentId) return;
@@ -111,6 +130,99 @@ export const TeamsPage = () => {
     }
   };
 
+  const openEditModal = (team: any) => {
+    const currentMembers = participants
+      .filter((p) => p.teamId === team.id)
+      .map((p) => ({
+        id: p.id,
+        firstName: p.firstName || '',
+        lastName: p.lastName || '',
+      }));
+
+    setEditingTeam(team);
+    setEditForm({
+      name: team.name || '',
+      organization: team.organization || '',
+      coach: team.coach || '',
+    });
+    setEditMembers(currentMembers);
+    setRemovedMemberIds([]);
+    setSelectedFreeParticipantId('');
+  };
+
+  const handleAddFreeMemberToEdit = () => {
+    if (!selectedFreeParticipantId) return;
+    const found = participants.find((p) => p.id === selectedFreeParticipantId);
+    if (!found) return;
+
+    setEditMembers((prev) => [
+      ...prev,
+      {
+        id: found.id,
+        firstName: found.firstName || '',
+        lastName: found.lastName || '',
+        isNew: true,
+      },
+    ]);
+    setRemovedMemberIds((prev) => prev.filter((id) => id !== found.id));
+    setSelectedFreeParticipantId('');
+  };
+
+  const handleRemoveMemberFromEdit = (member: EditableMember) => {
+    setEditMembers((prev) => prev.filter((m) => m.id !== member.id));
+    if (!member.isNew) {
+      setRemovedMemberIds((prev) => (prev.includes(member.id) ? prev : [...prev, member.id]));
+    }
+  };
+
+  const handleUpdateTeam = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTeam) return;
+
+    if (!editForm.name.trim()) {
+      showError('Введите название команды');
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      const addMemberIds = editMembers.filter((m) => m.isNew).map((m) => m.id);
+      const res = await fetch(`${API_BASE}/api/tournaments/teams/${editingTeam.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: editForm.name.trim(),
+          organization: editForm.organization.trim(),
+          coach: editForm.coach.trim(),
+          members: editMembers.map((m) => ({
+            id: m.id,
+            firstName: m.firstName,
+            lastName: m.lastName,
+          })),
+          addMemberIds,
+          removeMemberIds: removedMemberIds,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        showError(data.error || 'Ошибка обновления команды', data);
+        return;
+      }
+
+      showSuccess('Изменения сохранены');
+      setEditingTeam(null);
+      fetchData();
+    } catch (err: any) {
+      showError('Ошибка сети при сохранении', { message: err.message });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const handleDelete = async (teamId: string) => {
     if (!confirm('Удалить эту команду?')) return;
     try {
@@ -129,6 +241,10 @@ export const TeamsPage = () => {
 
   const filteredTeams = teams.filter(t =>
     `${t.name} ${t.organization} ${t.coach}`.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const freeParticipants = participants.filter(
+    (p) => !p.teamId && !editMembers.some((m) => m.id === p.id)
   );
 
   const handlePrintPDF = () => {
@@ -376,13 +492,13 @@ export const TeamsPage = () => {
         <div className="flex items-center gap-2.5">
           <button
             onClick={handlePrintPDF}
-            className="inline-flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-medium px-4 py-2 rounded-xl text-sm transition shadow-sm"
+            className="inline-flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-medium px-4 py-2 rounded-xl text-sm transition shadow-sm cursor-pointer"
           >
             <Printer size={16} /> Скачать PDF
           </button>
           <button
             onClick={() => setIsModalOpen(true)}
-            className="inline-flex items-center gap-2 bg-rhetora-teal hover:bg-sky-600 text-white font-medium px-4 py-2 rounded-xl text-sm transition shadow-sm"
+            className="inline-flex items-center gap-2 bg-rhetora-teal hover:bg-sky-600 text-white font-medium px-4 py-2 rounded-xl text-sm transition shadow-sm cursor-pointer"
           >
             <Plus size={18} /> Добавить команду
           </button>
@@ -404,7 +520,7 @@ export const TeamsPage = () => {
       </div>
 
       {/* Основная таблица на экране */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
@@ -427,25 +543,47 @@ export const TeamsPage = () => {
                 const teamMembers = participants.filter(p => p.teamId === t.id);
                 return (
                   <tr key={t.id} className="hover:bg-slate-50/60 transition">
-                    <td className="p-4 font-medium text-slate-900 flex items-center gap-2.5">
-                      <span className="text-base select-none">{getTeamEmoji(t.name)}</span>
-                      {t.name}
+                    <td className="p-4 font-medium text-slate-900">
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(t)}
+                        className="inline-flex items-center gap-2.5 text-left hover:text-rhetora-teal transition cursor-pointer"
+                      >
+                        <span className="text-base select-none">{getTeamEmoji(t.name)}</span>
+                        <span>{t.name}</span>
+                      </button>
                     </td>
                     <td className="p-4 text-slate-600">{t.organization || '—'}</td>
                     <td className="p-4 text-slate-600">{t.coach || '—'}</td>
                     <td className="p-4">
                       <button
+                        type="button"
                         onClick={() => setSelectedTeam(t)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 font-semibold text-xs rounded-full border border-sky-200 transition"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 font-semibold text-xs rounded-full border border-sky-200 transition cursor-pointer"
                       >
                         <Users size={14} />
                         {teamMembers.length} участников
                       </button>
                     </td>
                     <td className="p-4 text-right">
-                      <button onClick={() => handleDelete(t.id)} className="p-1.5 text-slate-400 hover:text-red-500 transition">
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="inline-flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(t)}
+                          title="Изменить команду"
+                          className="p-1.5 text-slate-400 hover:text-rhetora-teal hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(t.id)}
+                          title="Удалить команду"
+                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -457,14 +595,22 @@ export const TeamsPage = () => {
 
       {/* Модальное окно состава команды */}
       {selectedTeam && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border overflow-hidden">
+        <div
+          onClick={() => setSelectedTeam(null)}
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-xl w-full max-w-lg border overflow-hidden"
+          >
             <div className="flex justify-between items-center p-5 border-b bg-slate-50">
               <div className="flex items-center gap-2">
                 <span className="text-xl">{getTeamEmoji(selectedTeam.name)}</span>
                 <h3 className="font-bold text-lg text-slate-900">Состав команды: {selectedTeam.name}</h3>
               </div>
-              <button onClick={() => setSelectedTeam(null)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+              <button onClick={() => setSelectedTeam(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X size={20} />
+              </button>
             </div>
             
             <div className="p-5 max-h-96 overflow-y-auto space-y-3">
@@ -482,14 +628,182 @@ export const TeamsPage = () => {
               )}
             </div>
 
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between gap-2">
               <button
+                type="button"
+                onClick={() => {
+                  const teamToEdit = selectedTeam;
+                  setSelectedTeam(null);
+                  openEditModal(teamToEdit);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-medium rounded-xl text-sm transition cursor-pointer"
+              >
+                <Pencil size={14} /> Изменить состав и данные
+              </button>
+              <button
+                type="button"
                 onClick={() => setSelectedTeam(null)}
-                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium rounded-xl text-sm transition"
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium rounded-xl text-sm transition cursor-pointer"
               >
                 Закрыть
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Модальное окно редактирования команды */}
+      {editingTeam && (
+        <div
+          onClick={() => !savingEdit && setEditingTeam(null)}
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-xl w-full max-w-lg border overflow-hidden flex flex-col max-h-[90vh]"
+          >
+            <div className="flex justify-between items-center p-5 border-b bg-slate-50 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">{getTeamEmoji(editForm.name || editingTeam.name)}</span>
+                <h3 className="font-bold text-lg text-slate-900">Редактировать команду</h3>
+              </div>
+              <button
+                type="button"
+                disabled={savingEdit}
+                onClick={() => setEditingTeam(null)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateTeam} className="p-5 space-y-4 overflow-y-auto">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Название команды *</label>
+                <input
+                  required
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-rhetora-teal focus:bg-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Организация</label>
+                  <input
+                    placeholder="Школа / клуб"
+                    value={editForm.organization}
+                    onChange={(e) => setEditForm({ ...editForm, organization: e.target.value })}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-rhetora-teal focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Тренер / Куратор</label>
+                  <input
+                    placeholder="ФИО тренера"
+                    value={editForm.coach}
+                    onChange={(e) => setEditForm({ ...editForm, coach: e.target.value })}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-rhetora-teal focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Редактирование участников команды */}
+              <div className="pt-2 border-t border-slate-100 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-700">
+                    Состав участников ({editMembers.length})
+                  </label>
+                </div>
+
+                {editMembers.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-2">В команде нет участников.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {editMembers.map((member, idx) => (
+                      <div key={member.id} className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-400 w-4 shrink-0">{idx + 1}.</span>
+                        <input
+                          type="text"
+                          placeholder="Имя"
+                          value={member.firstName}
+                          onChange={(e) =>
+                            setEditMembers((prev) =>
+                              prev.map((m) => (m.id === member.id ? { ...m, firstName: e.target.value } : m))
+                            )
+                          }
+                          className="flex-1 min-w-0 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:border-rhetora-teal focus:bg-white"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Фамилия"
+                          value={member.lastName}
+                          onChange={(e) =>
+                            setEditMembers((prev) =>
+                              prev.map((m) => (m.id === member.id ? { ...m, lastName: e.target.value } : m))
+                            )
+                          }
+                          className="flex-1 min-w-0 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:border-rhetora-teal focus:bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveMemberFromEdit(member)}
+                          title="Убрать из команды"
+                          className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition shrink-0 cursor-pointer"
+                        >
+                          <X size={15} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {freeParticipants.length > 0 && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <select
+                      value={selectedFreeParticipantId}
+                      onChange={(e) => setSelectedFreeParticipantId(e.target.value)}
+                      className="flex-1 min-w-0 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:border-rhetora-teal"
+                    >
+                      <option value="">+ Добавить свободного участника...</option>
+                      {freeParticipants.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.firstName} {p.lastName} {p.organization ? `(${p.organization})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={!selectedFreeParticipantId}
+                      onClick={handleAddFreeMemberToEdit}
+                      className="inline-flex items-center gap-1 px-3 py-2 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-xl text-xs font-semibold transition disabled:opacity-40 cursor-pointer shrink-0"
+                    >
+                      <UserPlus size={14} /> Добавить
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-3 flex justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={savingEdit}
+                  onClick={() => setEditingTeam(null)}
+                  className="px-4 py-2 border rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="px-4 py-2 bg-rhetora-teal text-white font-medium rounded-xl text-sm hover:bg-sky-600 transition disabled:opacity-50 cursor-pointer"
+                >
+                  {savingEdit ? 'Сохранение...' : 'Сохранить изменения'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -500,7 +814,9 @@ export const TeamsPage = () => {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md border overflow-hidden">
             <div className="flex justify-between items-center p-5 border-b">
               <h3 className="font-bold text-lg text-slate-900">Создание команды</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X size={20} />
+              </button>
             </div>
             
             <form onSubmit={handleSubmit} className="p-5 space-y-4">
@@ -539,14 +855,14 @@ export const TeamsPage = () => {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 border rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50"
+                  className="px-4 py-2 border rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
                 >
                   Отмена
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="px-4 py-2 bg-rhetora-teal text-white font-medium rounded-xl text-sm hover:bg-sky-600 transition"
+                  className="px-4 py-2 bg-rhetora-teal text-white font-medium rounded-xl text-sm hover:bg-sky-600 transition cursor-pointer"
                 >
                   Сохранить
                 </button>

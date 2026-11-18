@@ -8,7 +8,8 @@ import {
 } from '../controllers/rounds.controller'; // 👈 Исправленный импорт контроллера раундов
 import {
   getParticipants, createParticipant, updateParticipant, deleteParticipant, importParticipantsCSV, exportParticipantsCSV,
-  getTeams, createTeam, deleteTeam,
+  getTeams, createTeam,
+  updateTeam, deleteTeam,
   getJudges, createJudge, updateJudge, deleteJudge,
   getRooms, createRoom, deleteRoom
 } from '../controllers/entities.controller';
@@ -90,6 +91,7 @@ router.get('/:tournamentId/participants/export', exportParticipantsCSV);
 // Команды
 router.get('/:tournamentId/teams', getTeams);
 router.post('/:tournamentId/teams', createTeam);
+router.put('/teams/:id', updateTeam);
 router.delete('/teams/:id', deleteTeam);
 
 // Судьи

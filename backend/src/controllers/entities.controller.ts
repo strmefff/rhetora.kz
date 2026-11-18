@@ -193,6 +193,82 @@ export const createTeam = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const updateTeam = async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  const { name, organization, city, coach, seed, members, addMemberIds, removeMemberIds } = req.body;
+
+  try {
+    const currentTeam = await prisma.team.findUnique({
+      where: { id },
+      include: { members: true },
+    });
+
+    if (!currentTeam) {
+      return res.status(404).json({ error: 'Команда не найдена' });
+    }
+
+    const trimmedName = typeof name === 'string' ? name.trim() : currentTeam.name;
+    if (!trimmedName) {
+      return res.status(400).json({ error: 'Название команды не может быть пустым' });
+    }
+
+    if (trimmedName !== currentTeam.name) {
+      const duplicate = await prisma.team.findUnique({
+        where: {
+          tournamentId_name: {
+            tournamentId: currentTeam.tournamentId,
+            name: trimmedName,
+          },
+        },
+      });
+      if (duplicate) {
+        return res.status(400).json({ error: 'Команда с таким названием уже существует' });
+      }
+    }
+
+    const updatedTeam = await prisma.$transaction(async (tx) => {
+      if (Array.isArray(members)) {
+        for (const m of members) {
+          if (m?.id && typeof m.firstName === 'string' && typeof m.lastName === 'string') {
+            const firstName = m.firstName.trim();
+            const lastName = m.lastName.trim();
+            if (firstName && lastName) {
+              await tx.participant.update({
+                where: { id: m.id },
+                data: { firstName, lastName },
+              });
+            }
+          }
+        }
+      }
+
+      return tx.team.update({
+        where: { id },
+        data: {
+          name: trimmedName,
+          ...(organization !== undefined ? { organization: String(organization).trim() } : {}),
+          ...(city !== undefined ? { city: String(city).trim() } : {}),
+          ...(coach !== undefined ? { coach: String(coach).trim() } : {}),
+          ...(seed !== undefined ? { seed: Number(seed) || 0 } : {}),
+          members: {
+            ...(Array.isArray(removeMemberIds) && removeMemberIds.length > 0
+              ? { disconnect: removeMemberIds.map((memberId: string) => ({ id: memberId })) }
+              : {}),
+            ...(Array.isArray(addMemberIds) && addMemberIds.length > 0
+              ? { connect: addMemberIds.map((memberId: string) => ({ id: memberId })) }
+              : {}),
+          },
+        },
+        include: { members: true },
+      });
+    });
+
+    res.json(updatedTeam);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Ошибка при обновлении команды' });
+  }
+};
+
 export const deleteTeam = async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   try {
