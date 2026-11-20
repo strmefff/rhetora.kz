@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Trophy, User, LogOut, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, Trophy, User, LogOut, ShieldCheck, Scale } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export const DashboardLayout = () => {
@@ -55,19 +55,35 @@ export const DashboardLayout = () => {
 
             {/* Пункт виден ТОЛЬКО Суперадмину */}
             {user?.role === 'SUPERADMIN' && (
-              <NavLink
-                to="/admin/users"
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                    isActive
-                      ? 'bg-rhetora-teal text-white shadow-sm font-semibold'
-                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                  }`
-                }
-              >
-                <ShieldCheck size={18} />
-                Аккаунты
-              </NavLink>
+              <>
+                <NavLink
+                  to="/judge/dashboard"
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                      isActive
+                        ? 'bg-rhetora-teal text-white shadow-sm font-semibold'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`
+                  }
+                >
+                  <Scale size={18} />
+                  Кабинет судьи
+                </NavLink>
+
+                <NavLink
+                  to="/admin/users"
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                      isActive
+                        ? 'bg-rhetora-teal text-white shadow-sm font-semibold'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`
+                  }
+                >
+                  <ShieldCheck size={18} />
+                  Аккаунты
+                </NavLink>
+              </>
             )}
 
             <NavLink

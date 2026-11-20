@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { LogOut, Trophy, Scale } from 'lucide-react';
+import { LogOut, Trophy, Scale, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface JudgeLayoutProps {
@@ -66,7 +66,17 @@ export const JudgeLayout: React.FC<JudgeLayoutProps> = ({
           </div>
 
           {/* Правая часть: имя, аватар-инициалы и выход */}
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {user?.role === 'SUPERADMIN' && (
+              <Link
+                to="/dashboard"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-rhetora-teal bg-sky-50 hover:bg-sky-100 border border-sky-200/80 transition"
+                title="Вернуться в панель организатора"
+              >
+                <LayoutDashboard size={15} />
+                <span className="hidden sm:inline">Организатор</span>
+              </Link>
+            )}
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-full bg-sky-100 text-sky-700 border border-sky-200 flex items-center justify-center text-xs font-bold">
                 {getInitials(displayName)}

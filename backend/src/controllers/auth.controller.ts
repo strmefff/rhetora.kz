@@ -129,7 +129,8 @@ export const judgeMagicLogin = async (req: Request, res: Response) => {
       });
     }
 
-    const token = jwt.sign({ id: user.id, role: 'JUDGE' }, JWT_SECRET, {
+    const effectiveRole = user.role === 'SUPERADMIN' ? 'SUPERADMIN' : 'JUDGE';
+    const token = jwt.sign({ id: user.id, role: effectiveRole }, JWT_SECRET, {
       expiresIn: '7d',
     });
 
@@ -139,7 +140,7 @@ export const judgeMagicLogin = async (req: Request, res: Response) => {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: 'JUDGE',
+        role: effectiveRole,
         avatar: user.avatar,
       },
     });

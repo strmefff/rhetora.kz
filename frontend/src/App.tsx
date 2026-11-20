@@ -59,7 +59,7 @@ function App() {
             <Route path="/judge/enter/:code" element={<JudgeMagicEntryPage />} />
 
             {/* ЗАЩИЩЁННЫЕ РОУТЫ ДЛЯ СУДЕЙ (JUDGE) */}
-            <Route element={<ProtectedRoute allowedRoles={['JUDGE']} />}>
+            <Route element={<ProtectedRoute allowedRoles={['JUDGE', 'SUPERADMIN']} />}>
               <Route path="/judge/dashboard" element={<JudgeDashboardPage />} />
               <Route path="/judge/matches/:assignmentId" element={<JudgeMatchPage />} />
             </Route>
