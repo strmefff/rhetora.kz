@@ -9,14 +9,18 @@ interface ProtectedRouteProps {
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles }) => {
   const { user, token } = useAuth();
 
-  // Если нет токена или данных юзера — на логин
   if (!token || !user) {
     return <Navigate to="/login" replace />;
   }
 
-  // Если роли не совпадают — на дашборд
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Navigate to="/dashboard" replace />;
+    if (user.role === 'JUDGE') {
+      return <Navigate to="/judge/dashboard" replace />;
+    }
+    if (user.role === 'ORGANIZER' || user.role === 'SUPERADMIN') {
+      return <Navigate to="/dashboard" replace />;
+    }
+    return <Navigate to="/login" replace />;
   }
 
   return <Outlet />;

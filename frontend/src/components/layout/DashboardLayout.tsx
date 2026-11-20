@@ -19,7 +19,7 @@ export const DashboardLayout = () => {
         <div>
           <div className="p-6 border-b border-slate-100 flex items-center gap-3">
             {/* ТВОЙ НОВЫЙ ЛОГОТИП */}
-            <img src="/logo.svg" alt="Rhetora Logo" className="w-9 h-9 object-contain" />
+            <img src="./logo.svg" alt="Rhetora Logo" className="w-9 h-9 object-contain" />
             
             <span className="font-bold text-xl text-slate-900 tracking-tight">Rhetora</span>
           </div>
