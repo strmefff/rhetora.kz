@@ -20,6 +20,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { JudgeLayout } from '../../components/JudgeLayout';
 import { API_BASE } from '../../config/api';
+import { useJudgeLang } from '../../utils/judgeI18n';
 
 interface MatchTeamEntry {
   id: string;
@@ -72,15 +73,15 @@ interface LocalBallotBackup {
   updatedAt: string;
 }
 
-const POSITION_META: Record<string, { label: string; accent: string; badge: string }> = {
-  GOV: { label: 'Правительство (GOV)', accent: 'border-sky-200 bg-sky-50/40', badge: 'bg-sky-100 text-sky-800' },
-  OPP: { label: 'Оппозиция (OPP)', accent: 'border-rose-200 bg-rose-50/40', badge: 'bg-rose-100 text-rose-800' },
-  OG: { label: 'Первое правительство (OG)', accent: 'border-sky-200 bg-sky-50/40', badge: 'bg-sky-100 text-sky-800' },
-  OO: { label: 'Первая оппозиция (OO)', accent: 'border-rose-200 bg-rose-50/40', badge: 'bg-rose-100 text-rose-800' },
-  CG: { label: 'Второе правительство (CG)', accent: 'border-indigo-200 bg-indigo-50/40', badge: 'bg-indigo-100 text-indigo-800' },
-  CO: { label: 'Вторая оппозиция (CO)', accent: 'border-amber-200 bg-amber-50/40', badge: 'bg-amber-100 text-amber-800' },
-  AFF: { label: 'Утверждение (AFF)', accent: 'border-sky-200 bg-sky-50/40', badge: 'bg-sky-100 text-sky-800' },
-  NEG: { label: 'Отрицание (NEG)', accent: 'border-rose-200 bg-rose-50/40', badge: 'bg-rose-100 text-rose-800' },
+const POSITION_STYLES: Record<string, { accent: string; badge: string }> = {
+  GOV: { accent: 'border-sky-200 bg-sky-50/40', badge: 'bg-sky-100 text-sky-800' },
+  OPP: { accent: 'border-rose-200 bg-rose-50/40', badge: 'bg-rose-100 text-rose-800' },
+  OG: { accent: 'border-sky-200 bg-sky-50/40', badge: 'bg-sky-100 text-sky-800' },
+  OO: { accent: 'border-rose-200 bg-rose-50/40', badge: 'bg-rose-100 text-rose-800' },
+  CG: { accent: 'border-indigo-200 bg-indigo-50/40', badge: 'bg-indigo-100 text-indigo-800' },
+  CO: { accent: 'border-amber-200 bg-amber-50/40', badge: 'bg-amber-100 text-amber-800' },
+  AFF: { accent: 'border-sky-200 bg-sky-50/40', badge: 'bg-sky-100 text-sky-800' },
+  NEG: { accent: 'border-rose-200 bg-rose-50/40', badge: 'bg-rose-100 text-rose-800' },
 };
 
 const FORMAT_POSITION_ORDER: Record<string, string[]> = {
@@ -118,6 +119,7 @@ export const JudgeMatchPage = () => {
   const { assignmentId } = useParams<{ assignmentId: string }>();
   const { token, user } = useAuth();
   const { showError, showSuccess } = useToast();
+  const { lang, t } = useJudgeLang();
   const navigate = useNavigate();
 
   const [data, setData] = useState<AssignmentDetail | null>(null);
@@ -156,9 +158,7 @@ export const JudgeMatchPage = () => {
       if (!storageKey) return;
       try {
         localStorage.setItem(storageKey, JSON.stringify(payload));
-      } catch {
-        // Игнорируем переполнение квоты Safari Private Mode
-      }
+      } catch {}
     },
     [storageKey]
   );
@@ -181,7 +181,7 @@ export const JudgeMatchPage = () => {
         const json = await res.json();
 
         if (!res.ok) {
-          showError(json.error || 'Нет доступа к этой игре', json);
+          showError(json.error || t.errNoMatchAccess, json);
           navigate('/judge/dashboard');
           return;
         }
@@ -261,7 +261,7 @@ export const JudgeMatchPage = () => {
           setSyncState('offline');
           hydratedRef.current = true;
         }
-        showError('Нестабильное соединение при загрузке игры. Проверьте интернет и обновите страницу.', {
+        showError(t.errUnstableLoad, {
           message: err.message,
         });
       } finally {
@@ -318,7 +318,7 @@ export const JudgeMatchPage = () => {
           setLastSavedAt(json.updatedAt || new Date().toISOString());
           setSyncState('saved');
           if (manual) {
-            showSuccess('Черновик бюллетеня сохранён');
+            showSuccess(t.okDraftSaved);
           }
         } else if (res.status === 409) {
           dirtyRef.current = false;
@@ -328,21 +328,20 @@ export const JudgeMatchPage = () => {
         } else {
           setSyncState('offline');
           if (manual) {
-            showError(json.error || 'Не удалось сохранить на сервер — данные сохранены на телефоне', json);
+            showError(json.error || t.errServerSaveOffline, json);
           }
         }
       } catch (err: any) {
         if (err?.name === 'AbortError' && !manual) return;
         setSyncState('offline');
         if (manual) {
-          showError('Нет связи с сервером — баллы надёжно сохранены в памяти телефона');
+          showError(t.errNoServerOffline);
         }
       }
     },
-    [assignmentId, token, ballotStatus, data, notes, winner, speakerScoresState, clearLocalBackup, showSuccess, showError]
+    [assignmentId, token, ballotStatus, data, notes, winner, speakerScoresState, clearLocalBackup, showSuccess, showError, t]
   );
 
-  // Мгновенный локальный бэкап + неблокирующий автосейв на сервер через 1.5с
   useEffect(() => {
     if (!hydratedRef.current || ballotStatus === 'SUBMITTED' || !data?.isChair) return;
 
@@ -368,7 +367,6 @@ export const JudgeMatchPage = () => {
     };
   }, [notes, winner, speakerScoresState, ballotStatus, data?.isChair, writeLocalBackup, syncDraftToServer]);
 
-  // Автосинхронизация при возврате интернета или разблокировке экрана телефона
   useEffect(() => {
     const handleOnlineOrVisible = () => {
       if (
@@ -395,7 +393,7 @@ export const JudgeMatchPage = () => {
   const handleOpenConfirm = () => {
     if (!assignmentId || ballotStatus === 'SUBMITTED' || !data?.isChair) return;
     if (!winner) {
-      showError('Пожалуйста, выберите победителя дебатов перед отправкой');
+      showError(t.errSelectWinner);
       return;
     }
     setConfirmOpen(true);
@@ -404,7 +402,7 @@ export const JudgeMatchPage = () => {
   const handleSubmitBallot = async () => {
     if (!assignmentId || ballotStatus === 'SUBMITTED' || !data?.isChair || submitting) return;
     if (!winner) {
-      showError('Пожалуйста, выберите победителя дебатов перед отправкой');
+      showError(t.errSelectWinner);
       return;
     }
 
@@ -438,7 +436,6 @@ export const JudgeMatchPage = () => {
       try {
         res = await sendAttempt();
       } catch {
-        // Одна автоматическая повторная попытка при кратковременном провале 4G
         await new Promise((r) => setTimeout(r, 1200));
         res = await sendAttempt();
       }
@@ -451,16 +448,13 @@ export const JudgeMatchPage = () => {
         setLastSavedAt(json.submittedAt || json.updatedAt || new Date().toISOString());
         setSyncState('saved');
         setConfirmOpen(false);
-        showSuccess('Бюллетень успешно отправлен!');
+        showSuccess(t.okBallotSubmitted);
       } else {
-        showError(json.error || 'Ошибка отправки бюллетеня. Попробуйте ещё раз.', json);
+        showError(json.error || t.errSubmitBallot, json);
       }
     } catch (err: any) {
       setSyncState('offline');
-      showError(
-        'Слабый интернет: сервер не ответил вовремя. Все баллы сохранены на телефоне — нажмите «Подтвердить отправку» ещё раз.',
-        { message: err?.message }
-      );
+      showError(t.errWeakInternetSubmit, { message: err?.message });
     } finally {
       setSubmitting(false);
     }
@@ -497,7 +491,10 @@ export const JudgeMatchPage = () => {
   const formatSavedTime = (iso: string | null) => {
     if (!iso) return '';
     try {
-      return new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      return new Date(iso).toLocaleTimeString(lang === 'kz' ? 'kk-KZ' : 'ru-RU', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
     } catch {
       return '';
     }
@@ -518,7 +515,7 @@ export const JudgeMatchPage = () => {
             className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900 transition"
           >
             <ArrowLeft size={16} />
-            Назад к моим играм
+            {t.backToMyGames}
           </Link>
 
           {!isLocked && (
@@ -526,19 +523,19 @@ export const JudgeMatchPage = () => {
               {syncState === 'saving' && (
                 <span className="inline-flex items-center gap-1.5 text-sky-600 bg-sky-50 px-2.5 py-1 rounded-full border border-sky-200">
                   <RefreshCw size={12} className="animate-spin" />
-                  Сохранение...
+                  {t.syncSaving}
                 </span>
               )}
               {syncState === 'saved' && (
                 <span className="inline-flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
                   <Check size={12} />
-                  Сохранено {lastSavedAt ? `в ${formatSavedTime(lastSavedAt)}` : ''}
+                  {lastSavedAt ? t.syncSavedAt(formatSavedTime(lastSavedAt)) : t.syncSaved}
                 </span>
               )}
               {syncState === 'offline' && (
                 <span className="inline-flex items-center gap-1.5 text-amber-800 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
                   <WifiOff size={12} />
-                  На телефоне (ожидание сети)
+                  {t.syncOffline}
                 </span>
               )}
             </div>
@@ -561,7 +558,7 @@ export const JudgeMatchPage = () => {
                     {data.match.tournament.name}
                   </div>
                   <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 mt-1">
-                    Раунд {data.match.round.number} · {data.match.round.name} — Игра #{data.match.gameNumber}
+                    {t.matchHeading(data.match.round.number, data.match.round.name, data.match.gameNumber)}
                   </h1>
                 </div>
 
@@ -572,17 +569,17 @@ export const JudgeMatchPage = () => {
                   {ballotStatus === 'SUBMITTED' ? (
                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold">
                       <CheckCircle2 size={14} />
-                      Отправлен
+                      {t.statusSubmitted}
                     </span>
                   ) : !data.isChair ? (
                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-xs font-bold">
                       <Lock size={14} />
-                      Только просмотр (Боковой)
+                      {t.viewOnlyWing}
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-sky-50 text-sky-700 border border-sky-200 text-xs font-bold">
                       <FileEdit size={14} />
-                      Черновик
+                      {t.statusDraft}
                     </span>
                   )}
                 </div>
@@ -592,9 +589,9 @@ export const JudgeMatchPage = () => {
                 <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-100">
                   <DoorOpen size={18} className="text-rhetora-teal shrink-0" />
                   <div>
-                    <div className="text-[11px] text-slate-400 font-medium">Аудитория</div>
+                    <div className="text-[11px] text-slate-400 font-medium">{t.roomLabel}</div>
                     <div className="font-bold text-slate-800">
-                      {data.match.room ? data.match.room.name : 'Не назначена'}
+                      {data.match.room ? data.match.room.name : t.roomNotAssigned}
                     </div>
                   </div>
                 </div>
@@ -602,9 +599,9 @@ export const JudgeMatchPage = () => {
                 <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-100">
                   <UserCheck size={18} className="text-rhetora-teal shrink-0" />
                   <div>
-                    <div className="text-[11px] text-slate-400 font-medium">Назначенный судья</div>
+                    <div className="text-[11px] text-slate-400 font-medium">{t.assignedJudgeLabel}</div>
                     <div className="font-bold text-slate-800">
-                      {data.judge.name} ({data.isChair ? 'Главный судья (Чейр)' : 'Боковой судья'})
+                      {data.judge.name} ({data.isChair ? t.chairFull : t.wingFull})
                     </div>
                   </div>
                 </div>
@@ -612,7 +609,7 @@ export const JudgeMatchPage = () => {
                 <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-100">
                   <Layers size={18} className="text-rhetora-teal shrink-0" />
                   <div>
-                    <div className="text-[11px] text-slate-400 font-medium">Формат дебатов</div>
+                    <div className="text-[11px] text-slate-400 font-medium">{t.debateFormatLabel}</div>
                     <div className="font-bold text-slate-800">{data.match.format}</div>
                   </div>
                 </div>
@@ -624,7 +621,7 @@ export const JudgeMatchPage = () => {
               <div className="flex items-center gap-3 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-sm font-medium shadow-sm">
                 <Lock size={20} className="text-amber-600 shrink-0" />
                 <div>
-                  <span className="font-bold">Режим просмотра:</span> Вы назначены боковым судьей (Винг). Вы можете изучать составы и оставлять личные заметки, но заполнять протокол и отправлять официальный бюллетень может только Главный судья (Чейр).
+                  <span className="font-bold">{t.wingNoticeTitle}</span> {t.wingNoticeBody}
                 </div>
               </div>
             )}
@@ -632,37 +629,36 @@ export const JudgeMatchPage = () => {
             {/* Блок судейского листа */}
             <section className="bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-6 shadow-sm space-y-6">
               <div className="border-b border-slate-100 pb-4">
-                <h2 className="text-lg font-bold text-slate-900">Судейский протокол и спикерские баллы</h2>
+                <h2 className="text-lg font-bold text-slate-900">{t.protocolTitle}</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Критерии: Стиль (до 40), Контент (до 40), Стратегия (до 20). Прогресс сохраняется автоматически.
+                  {t.protocolSubtitle}
                 </p>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 {orderedTeams.map((entry) => {
-                  const meta = POSITION_META[entry.position] || {
-                    label: entry.position,
+                  const styleMeta = POSITION_STYLES[entry.position] || {
                     accent: 'border-slate-200 bg-slate-50/40',
                     badge: 'bg-slate-100 text-slate-700',
                   };
+                  const posLabel = t.positions[entry.position] || entry.position;
 
                   return (
-                    <div key={entry.id} className={`rounded-2xl border p-4 sm:p-5 space-y-4 ${meta.accent}`}>
+                    <div key={entry.id} className={`rounded-2xl border p-4 sm:p-5 space-y-4 ${styleMeta.accent}`}>
                       <div className="flex items-center justify-between gap-2">
-                        <span className={`px-3 py-1 rounded-lg text-xs font-bold ${meta.badge}`}>
-                          {meta.label}
+                        <span className={`px-3 py-1 rounded-lg text-xs font-bold ${styleMeta.badge}`}>
+                          {posLabel}
                         </span>
                         <div className="text-right">
                           <div className="text-sm font-extrabold text-slate-900">
-                            {entry.team?.name || 'Команда TBD'}
+                            {entry.team?.name || t.teamTbd}
                           </div>
                           <div className="text-[11px] font-bold text-slate-500">
-                            Сумма команды: {teamTotals[entry.position] || 0}
+                            {t.teamTotal(teamTotals[entry.position] || 0)}
                           </div>
                         </div>
                       </div>
 
-                      {/* Список спикеров с инпутами по критериям */}
                       <div className="space-y-3">
                         {entry.team?.members && entry.team.members.length > 0 ? (
                           entry.team.members.map((member, idx) => {
@@ -680,13 +676,13 @@ export const JudgeMatchPage = () => {
                                     {member.firstName} {member.lastName}
                                   </span>
                                   <span className="text-rhetora-teal font-extrabold text-sm">
-                                    Итого: {total} / 100
+                                    {t.speakerTotal(total)}
                                   </span>
                                 </div>
 
                                 <div className="grid grid-cols-3 gap-2">
                                   <div>
-                                    <label className="text-[11px] text-slate-500 block mb-1 font-medium">Стиль (/40)</label>
+                                    <label className="text-[11px] text-slate-500 block mb-1 font-medium">{t.critStyle}</label>
                                     <input
                                       type="text"
                                       inputMode="numeric"
@@ -706,7 +702,7 @@ export const JudgeMatchPage = () => {
                                     />
                                   </div>
                                   <div>
-                                    <label className="text-[11px] text-slate-500 block mb-1 font-medium">Контент (/40)</label>
+                                    <label className="text-[11px] text-slate-500 block mb-1 font-medium">{t.critContent}</label>
                                     <input
                                       type="text"
                                       inputMode="numeric"
@@ -726,7 +722,7 @@ export const JudgeMatchPage = () => {
                                     />
                                   </div>
                                   <div>
-                                    <label className="text-[11px] text-slate-500 block mb-1 font-medium">Стратегия (/20)</label>
+                                    <label className="text-[11px] text-slate-500 block mb-1 font-medium">{t.critStrategy}</label>
                                     <input
                                       type="text"
                                       inputMode="numeric"
@@ -751,7 +747,7 @@ export const JudgeMatchPage = () => {
                           })
                         ) : (
                           <div className="text-xs text-slate-400 italic p-3 bg-white rounded-xl border">
-                            Состав спикеров не указан
+                            {t.noSpeakers}
                           </div>
                         )}
                       </div>
@@ -763,7 +759,7 @@ export const JudgeMatchPage = () => {
               {/* Выбор победителя дебатов */}
               <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
                 <label className="block text-sm font-bold text-slate-900">
-                  Победитель дебатов (Фракция) *
+                  {t.winnerLabel}
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button
@@ -776,7 +772,7 @@ export const JudgeMatchPage = () => {
                         : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
-                    Правительство (GOV) {winner === 'GOV' && '✓'}
+                    {t.govBtn} {winner === 'GOV' && '✓'}
                   </button>
                   <button
                     type="button"
@@ -788,7 +784,7 @@ export const JudgeMatchPage = () => {
                         : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
-                    Оппозиция (OPP) {winner === 'OPP' && '✓'}
+                    {t.oppBtn} {winner === 'OPP' && '✓'}
                   </button>
                 </div>
               </div>
@@ -796,14 +792,14 @@ export const JudgeMatchPage = () => {
               {/* Обоснование решения */}
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                  Обоснование решения и столкновения (Oral Adjudication / Notes)
+                  {t.notesLabel}
                 </label>
                 <textarea
                   rows={4}
                   disabled={isLocked}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Опишите ключевые клэши и аргументы победившей стороны..."
+                  placeholder={t.notesPlaceholder}
                   className="w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-rhetora-teal/20 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500"
                 />
               </div>
@@ -818,7 +814,7 @@ export const JudgeMatchPage = () => {
                     className="inline-flex items-center justify-center gap-2 px-4 py-3.5 sm:py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-sm font-semibold transition disabled:opacity-50 cursor-pointer"
                   >
                     <Save size={16} />
-                    {syncState === 'saving' ? 'Сохранение...' : 'Сохранить черновик'}
+                    {syncState === 'saving' ? t.syncSaving : t.saveDraftBtn}
                   </button>
 
                   <button
@@ -828,7 +824,7 @@ export const JudgeMatchPage = () => {
                     className="inline-flex items-center justify-center gap-2 px-5 py-3.5 sm:py-2.5 rounded-xl bg-rhetora-teal hover:bg-sky-600 text-white text-sm font-bold shadow-sm transition disabled:opacity-50 cursor-pointer"
                   >
                     <Send size={16} />
-                    Отправить бюллетень
+                    {t.submitBallotBtn}
                   </button>
                 </div>
               )}
@@ -837,7 +833,7 @@ export const JudgeMatchPage = () => {
         )}
       </div>
 
-      {/* Встроенное окно подтверждения отправки (работает во всех мобильных браузерах, Telegram и WhatsApp) */}
+      {/* Встроенное окно подтверждения отправки */}
       {confirmOpen && (
         <div
           onClick={() => !submitting && setConfirmOpen(false)}
@@ -848,7 +844,7 @@ export const JudgeMatchPage = () => {
             className="bg-white rounded-3xl shadow-2xl w-full max-w-md border border-slate-100 p-5 sm:p-6 space-y-4"
           >
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold text-slate-900">Подтвердите отправку</h3>
+              <h3 className="text-lg font-extrabold text-slate-900">{t.confirmTitle}</h3>
               <button
                 type="button"
                 disabled={submitting}
@@ -861,9 +857,9 @@ export const JudgeMatchPage = () => {
 
             <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-slate-500">Победитель:</span>
+                <span className="text-slate-500">{t.confirmWinner}</span>
                 <span className="font-extrabold text-slate-900">
-                  {winner === 'GOV' ? 'Правительство (GOV)' : 'Оппозиция (OPP)'}
+                  {winner === 'GOV' ? t.govBtn : t.oppBtn}
                 </span>
               </div>
               {orderedTeams.map((entry) => (
@@ -871,13 +867,15 @@ export const JudgeMatchPage = () => {
                   <span className="text-slate-600">
                     {entry.team?.name || entry.position} ({entry.position}):
                   </span>
-                  <span className="font-bold text-slate-900">{teamTotals[entry.position] || 0} баллов</span>
+                  <span className="font-bold text-slate-900">
+                    {t.pointsUnit(teamTotals[entry.position] || 0)}
+                  </span>
                 </div>
               ))}
             </div>
 
             <p className="text-xs text-slate-500 leading-relaxed">
-              После отправки бюллетень попадёт в табуляцию турнира и редактирование будет заблокировано.
+              {t.confirmWarning}
             </p>
 
             <div className="grid grid-cols-2 gap-2.5 pt-1">
@@ -887,7 +885,7 @@ export const JudgeMatchPage = () => {
                 onClick={() => setConfirmOpen(false)}
                 className="py-3 rounded-xl border border-slate-200 text-slate-700 font-semibold text-sm hover:bg-slate-50 transition disabled:opacity-50 cursor-pointer"
               >
-                Вернуться
+                {t.confirmCancel}
               </button>
               <button
                 type="button"
@@ -898,10 +896,10 @@ export const JudgeMatchPage = () => {
                 {submitting ? (
                   <>
                     <RefreshCw size={15} className="animate-spin" />
-                    Отправка...
+                    {t.confirmSending}
                   </>
                 ) : (
-                  'Подтвердить отправку'
+                  t.confirmSubmit
                 )}
               </button>
             </div>

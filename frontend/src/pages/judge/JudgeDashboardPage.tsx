@@ -26,6 +26,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { JudgeLayout } from '../../components/JudgeLayout';
 import { API_BASE } from '../../config/api';
+import { useJudgeLang } from '../../utils/judgeI18n';
 
 interface JudgeAssignmentItem {
   assignmentId: string;
@@ -52,7 +53,6 @@ interface DashboardResponse {
   assignments: JudgeAssignmentItem[];
 }
 
-// Сжатие и обрезка аватарки в квадрат 160x160 (~8-12 КБ) в браузере
 const compressImageToBase64 = (file: File, size = 160, quality = 0.8): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -83,18 +83,17 @@ const compressImageToBase64 = (file: File, size = 160, quality = 0.8): Promise<s
 export const JudgeDashboardPage = () => {
   const { token, user } = useAuth();
   const { showError, showSuccess } = useToast();
+  const { t } = useJudgeLang();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [activeTab, setActiveTab] = useState<'games' | 'timer' | 'profile'>('games');
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Состояния таймера (5 минут по умолчанию для основной речи)
-  const [timerSeconds, setTimerSeconds] = useState<number>(300); 
+  const [timerSeconds, setTimerSeconds] = useState<number>(300);
   const [initialSeconds, setInitialSeconds] = useState<number>(300);
   const [isTimerRunning, setIsTimerRunning] = useState<boolean>(false);
 
-  // Функция воспроизведения кастомного аудиофайла гонга
   const playGongSound = () => {
     try {
       const audio = new Audio('/gong.mp3');
@@ -107,26 +106,18 @@ export const JudgeDashboardPage = () => {
     }
   };
 
-  // Логика работы таймера и звуковых сигналов
   useEffect(() => {
     let interval: any = null;
     if (isTimerRunning && timerSeconds > 0) {
       interval = setInterval(() => {
         setTimerSeconds((prev) => {
           const next = prev - 1;
-          
-          // Проверка регламентных точек для звукового сигнала
+
           if (initialSeconds === 300) {
-            // Для 5-минутной речи: 
-            // Прошла 1 минута (осталось 240 сек) -> гонг
-            // Последняя минута (осталось 60 сек) -> гонг
-            // Конец времени (0 сек) -> гонг
             if (next === 240 || next === 60 || next === 0) {
               playGongSound();
             }
           } else if (initialSeconds === 180) {
-            // Для 3-минутной аналитики:
-            // Прошла 1 минута (осталось 120 сек) и последняя минута (осталось 60 сек)
             if (next === 120 || next === 60 || next === 0) {
               playGongSound();
             }
@@ -168,7 +159,6 @@ export const JudgeDashboardPage = () => {
     setTimerSeconds((prev) => prev + 15);
   };
 
-  // Состояния профиля и аватарки
   const [userId, setUserId] = useState<string>(user?.id || '');
   const [profileName, setProfileName] = useState<string>(user?.name || '');
   const [profileEmail, setProfileEmail] = useState<string>(user?.email || '');
@@ -179,7 +169,6 @@ export const JudgeDashboardPage = () => {
     return null;
   });
 
-  // Состояния форм редактирования
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -208,7 +197,7 @@ export const JudgeDashboardPage = () => {
           if (!profileName && dashJson.judge?.name) setProfileName(dashJson.judge.name);
           if (!profileEmail && dashJson.judge?.email) setProfileEmail(dashJson.judge.email);
         } else {
-          showError(dashJson.error || 'Не удалось загрузить кабинет судьи', dashJson);
+          showError(dashJson.error || t.errLoadCabinet, dashJson);
         }
 
         if (meRes.ok) {
@@ -222,7 +211,7 @@ export const JudgeDashboardPage = () => {
           setAvatar(meJson.avatar || cachedAvatar || null);
         }
       } catch (err: any) {
-        showError('Ошибка сети при загрузке данных', { message: err.message });
+        showError(t.errNetworkLoad, { message: err.message });
       } finally {
         setLoading(false);
       }
@@ -231,13 +220,12 @@ export const JudgeDashboardPage = () => {
     fetchAllData();
   }, [token]);
 
-  // Загрузка и сжатие новой аватарки в кэш
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      showError('Выберите файл изображения (JPG, PNG, WebP)');
+      showError(t.errImageFormat);
       return;
     }
 
@@ -259,15 +247,14 @@ export const JudgeDashboardPage = () => {
         }),
       }).catch(() => {});
 
-      showSuccess('Аватарка обновлена');
+      showSuccess(t.okAvatarUpdated);
     } catch (err: any) {
-      showError(err.message || 'Не удалось обработать фото');
+      showError(err.message || t.errProcessPhoto);
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  // Удаление аватарки
   const handleRemoveAvatar = async () => {
     setAvatar(null);
     localStorage.removeItem(getCacheKey(userId));
@@ -285,10 +272,9 @@ export const JudgeDashboardPage = () => {
       }),
     }).catch(() => {});
 
-    showSuccess('Аватарка удалена');
+    showSuccess(t.okAvatarRemoved);
   };
 
-  // Сохранение имени и Email
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingProfile(true);
@@ -303,26 +289,25 @@ export const JudgeDashboardPage = () => {
       });
       const resData = await res.json();
       if (res.ok) {
-        showSuccess('Профиль успешно обновлён!');
+        showSuccess(t.okProfileUpdated);
       } else {
-        showError(resData.error || 'Ошибка сохранения профиля');
+        showError(resData.error || t.errSaveProfile);
       }
-    } catch (err) {
-      showError('Ошибка сети');
+    } catch {
+      showError(t.errNetwork);
     } finally {
       setSavingProfile(false);
     }
   };
 
-  // Смена пароля
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
-      showError('Новые пароли не совпадают');
+      showError(t.errPassMismatch);
       return;
     }
     if (newPassword.length < 6) {
-      showError('Пароль должен быть не менее 6 символов');
+      showError(t.errPassMin);
       return;
     }
 
@@ -338,21 +323,20 @@ export const JudgeDashboardPage = () => {
       });
       const resData = await res.json();
       if (res.ok) {
-        showSuccess('Пароль успешно изменён!');
+        showSuccess(t.okPassChanged);
         setCurrentPassword('');
         setNewPassword('');
         setConfirmPassword('');
       } else {
-        showError(resData.error || 'Ошибка смены пароля');
+        showError(resData.error || t.errPassChange);
       }
-    } catch (err) {
-      showError('Ошибка сети');
+    } catch {
+      showError(t.errNetwork);
     } finally {
       setSavingPassword(false);
     }
   };
 
-  // Группировка игр по раундам (с учётом турнира)
   const groupedRounds = useMemo(() => {
     if (!data?.assignments) return [];
     const map = new Map<
@@ -388,7 +372,7 @@ export const JudgeDashboardPage = () => {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
           <CheckCircle2 size={13} />
-          Отправлен
+          {t.statusSubmitted}
         </span>
       );
     }
@@ -396,19 +380,19 @@ export const JudgeDashboardPage = () => {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-200">
           <FileEdit size={13} />
-          Черновик
+          {t.statusDraft}
         </span>
       );
     }
     return (
       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
         <Clock size={13} />
-        Ожидает заполнения
+        {t.statusPending}
       </span>
     );
   };
 
-  const displayName = profileName || data?.judge.name || user?.name || 'Личный кабинет судьи';
+  const displayName = profileName || data?.judge.name || user?.name || t.personalCabinetFallback;
   const displayEmail = profileEmail || data?.judge.email || user?.email || '';
 
   return (
@@ -417,7 +401,6 @@ export const JudgeDashboardPage = () => {
       activeTournamentName={data?.activeTournament?.name}
     >
       <div className="space-y-6 pb-20">
-        {/* Карточка судьи с аватаркой и переключателем вкладок (оптимизировано под мобайл) */}
         <div className="bg-white p-4 sm:p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col gap-4">
           <div className="flex items-center gap-3.5">
             <input
@@ -428,12 +411,11 @@ export const JudgeDashboardPage = () => {
               className="hidden"
             />
 
-            {/* Аватар */}
             <div className="relative group shrink-0">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                title="Нажмите, чтобы загрузить или обновить фото"
+                title={t.uploadAvatarTitle}
                 className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-rhetora-teal/10 text-rhetora-teal flex items-center justify-center font-extrabold text-xl sm:text-2xl shadow-inner overflow-hidden relative cursor-pointer border border-slate-200/70"
               >
                 {avatar ? (
@@ -451,7 +433,7 @@ export const JudgeDashboardPage = () => {
                 <button
                   type="button"
                   onClick={handleRemoveAvatar}
-                  title="Удалить фото"
+                  title={t.removeAvatarTitle}
                   className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white border border-slate-200 text-slate-500 hover:text-rose-600 shadow-sm flex items-center justify-center cursor-pointer transition"
                 >
                   <Trash2 size={10} />
@@ -465,7 +447,7 @@ export const JudgeDashboardPage = () => {
                   {displayName}
                 </h1>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-bold border border-slate-200">
-                  <Gavel size={11} className="text-rhetora-teal" /> Судья
+                  <Gavel size={11} className="text-rhetora-teal" /> {t.judgeBadge}
                 </span>
               </div>
               {displayEmail && (
@@ -474,7 +456,6 @@ export const JudgeDashboardPage = () => {
             </div>
           </div>
 
-          {/* Переключатель вкладок (Мои игры / Таймер / Профиль) */}
           <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1.5 rounded-2xl">
             <button
               type="button"
@@ -485,7 +466,7 @@ export const JudgeDashboardPage = () => {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Gavel size={15} /> Игры
+              <Gavel size={15} /> {t.tabGames}
             </button>
             <button
               type="button"
@@ -496,7 +477,7 @@ export const JudgeDashboardPage = () => {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <TimerIcon size={15} /> Таймер
+              <TimerIcon size={15} /> {t.tabTimer}
             </button>
             <button
               type="button"
@@ -507,7 +488,7 @@ export const JudgeDashboardPage = () => {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Settings size={15} /> Профиль
+              <Settings size={15} /> {t.tabProfile}
             </button>
           </div>
         </div>
@@ -518,7 +499,7 @@ export const JudgeDashboardPage = () => {
             <div className="grid grid-cols-3 gap-2.5">
               <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-sm text-center">
                 <div className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Всего игр
+                  {t.statTotal}
                 </div>
                 <div className="text-xl sm:text-3xl font-extrabold text-slate-900 mt-1">
                   {loading ? '—' : data?.stats.totalAssignments ?? 0}
@@ -527,7 +508,7 @@ export const JudgeDashboardPage = () => {
 
               <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-sm text-center">
                 <div className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Сдано
+                  {t.statSubmitted}
                 </div>
                 <div className="text-xl sm:text-3xl font-extrabold text-emerald-600 mt-1">
                   {loading ? '—' : data?.stats.submittedCount ?? 0}
@@ -536,7 +517,7 @@ export const JudgeDashboardPage = () => {
 
               <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-sm text-center">
                 <div className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Ждут
+                  {t.statPending}
                 </div>
                 <div className="text-xl sm:text-3xl font-extrabold text-amber-600 mt-1">
                   {loading ? '—' : data?.stats.pendingCount ?? 0}
@@ -546,10 +527,10 @@ export const JudgeDashboardPage = () => {
 
             <section className="space-y-4">
               <div className="flex items-center justify-between px-1">
-                <h2 className="text-base sm:text-lg font-bold text-slate-900">Назначенные дебаты</h2>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900">{t.assignedDebates}</h2>
                 {!loading && data && data.assignments.length > 0 && (
                   <span className="text-xs font-medium text-slate-400">
-                    По раундам
+                    {t.byRounds}
                   </span>
                 )}
               </div>
@@ -568,9 +549,9 @@ export const JudgeDashboardPage = () => {
                   <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
                     <Inbox size={24} />
                   </div>
-                  <h3 className="text-base font-bold text-slate-800">Игр пока нет</h3>
+                  <h3 className="text-base font-bold text-slate-800">{t.noGamesTitle}</h3>
                   <p className="text-sm text-slate-500 max-w-md mx-auto">
-                    Как только организатор распределит вас на дебаты, карточки игр появятся здесь.
+                    {t.noGamesDesc}
                   </p>
                 </div>
               ) : (
@@ -579,7 +560,7 @@ export const JudgeDashboardPage = () => {
                     <div key={group.key} className="space-y-2.5">
                       <div className="flex flex-wrap items-center gap-2 px-1">
                         <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-slate-900 text-white text-xs font-bold">
-                          Раунд {group.roundNumber}
+                          {t.roundLabel(group.roundNumber)}
                         </span>
                         <span className="text-xs sm:text-sm font-bold text-slate-800">{group.roundName}</span>
                       </div>
@@ -593,7 +574,7 @@ export const JudgeDashboardPage = () => {
                             <div className="space-y-2">
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <span className="font-bold text-slate-900 text-sm sm:text-base">
-                                  Игра #{item.gameNumber}
+                                  {t.gameLabel(item.gameNumber)}
                                 </span>
                                 <div className="flex items-center gap-1.5">
                                   <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-bold">
@@ -606,7 +587,7 @@ export const JudgeDashboardPage = () => {
                                         : 'bg-slate-50 text-slate-600 border border-slate-200'
                                     }`}
                                   >
-                                    {item.isChair ? 'Чейр' : 'Боковой'}
+                                    {item.isChair ? t.chairBadge : t.wingBadge}
                                   </span>
                                 </div>
                               </div>
@@ -618,7 +599,7 @@ export const JudgeDashboardPage = () => {
                                 </span>
                                 <span className="inline-flex items-center gap-1.5 font-medium text-slate-700">
                                   <DoorOpen size={13} className="text-rhetora-teal shrink-0" />
-                                  {item.room ? item.room.name : 'Аудитория не назначена'}
+                                  {item.room ? item.room.name : t.noRoom}
                                 </span>
                               </div>
 
@@ -633,7 +614,7 @@ export const JudgeDashboardPage = () => {
                                   : 'bg-rhetora-teal hover:bg-sky-600 text-white'
                               }`}
                             >
-                              {item.ballotStatus === 'SUBMITTED' ? 'Просмотреть бюллетень' : 'Открыть игру и бюллетень'}
+                              {item.ballotStatus === 'SUBMITTED' ? t.viewBallot : t.openBallot}
                               <ArrowRight size={16} />
                             </Link>
                           </div>
@@ -652,23 +633,21 @@ export const JudgeDashboardPage = () => {
           <div className="bg-white p-5 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm text-center space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-bold text-slate-900 text-left">Таймер речи спикера</h2>
+                <h2 className="text-lg font-bold text-slate-900 text-left">{t.timerTitle}</h2>
                 <p className="text-xs sm:text-sm text-slate-500 text-left">
-                  Регламент с авто-сигналами (гонг)
+                  {t.timerSubtitle}
                 </p>
               </div>
-              {/* Кнопка ручного звонка/гонга */}
               <button
                 type="button"
                 onClick={playGongSound}
-                title="Издать звуковой гонг вручную"
+                title={t.gongTitle}
                 className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
               >
-                <Bell size={15} /> Звонок
+                <Bell size={15} /> {t.gongBtn}
               </button>
             </div>
 
-            {/* Быстрые пресеты дебатного времени (5 минут и 3 минуты) */}
             <div className="flex items-center justify-center gap-3">
               <button
                 type="button"
@@ -679,7 +658,7 @@ export const JudgeDashboardPage = () => {
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                 }`}
               >
-                5 минут (Основная)
+                {t.preset5m}
               </button>
               <button
                 type="button"
@@ -690,11 +669,10 @@ export const JudgeDashboardPage = () => {
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                 }`}
               >
-                3 минуты (Аналитика)
+                {t.preset3m}
               </button>
             </div>
 
-            {/* Большое циферблатное табло таймера */}
             <div
               className={`py-8 sm:py-12 rounded-3xl border transition-colors relative overflow-hidden ${
                 timerSeconds === 0
@@ -704,17 +682,15 @@ export const JudgeDashboardPage = () => {
                   : 'bg-slate-50 border-slate-200 text-slate-900'
               }`}
             >
-              {/* Подсказка про защищенное время для 5-минутной речи */}
               {initialSeconds === 300 && (
                 <div className="absolute top-3 inset-x-0 text-[11px] font-bold uppercase tracking-wider text-slate-400 px-4">
-                  {timerSeconds > 240 ? '🛡️ Первая минута (Защищенное время)' : timerSeconds <= 60 ? '🛡️ Последняя минута (Защищенное время)' : '💬 Время вопросов (POI открыты)'}
+                  {timerSeconds > 240 ? t.protectedFirst : timerSeconds <= 60 ? t.protectedLast : t.poiOpen}
                 </div>
               )}
 
-              {/* Подсказка для 3-минутной аналитики */}
               {initialSeconds === 180 && (
                 <div className="absolute top-3 inset-x-0 text-[11px] font-bold uppercase tracking-wider text-slate-400 px-4">
-                  {timerSeconds > 120 ? '🛡️ Первая минута (Защищенное время)' : timerSeconds <= 60 ? '🛡️ Последняя минута (Защищенное время)' : '💬 Время вопросов (POI открыты)'}
+                  {timerSeconds > 120 ? t.protectedFirst : timerSeconds <= 60 ? t.protectedLast : t.poiOpen}
                 </div>
               )}
 
@@ -722,11 +698,10 @@ export const JudgeDashboardPage = () => {
                 {formatTime(timerSeconds)}
               </div>
               <div className="text-xs uppercase tracking-widest font-bold mt-2 text-slate-400">
-                {timerSeconds === 0 ? 'Время вышло!' : isTimerRunning ? 'Идёт отсчёт...' : 'Пауза'}
+                {timerSeconds === 0 ? t.timeUp : isTimerRunning ? t.timerRunning : t.timerPaused}
               </div>
             </div>
 
-            {/* Кнопки управления под палец на смартфоне */}
             <div className="grid grid-cols-3 gap-2.5 max-w-md mx-auto">
               <button
                 type="button"
@@ -739,11 +714,11 @@ export const JudgeDashboardPage = () => {
               >
                 {isTimerRunning ? (
                   <>
-                    <Pause size={18} /> Пауза
+                    <Pause size={18} /> {t.btnPause}
                   </>
                 ) : (
                   <>
-                    <Play size={18} /> Старт
+                    <Play size={18} /> {t.btnStart}
                   </>
                 )}
               </button>
@@ -752,9 +727,9 @@ export const JudgeDashboardPage = () => {
                 type="button"
                 onClick={handleAdd15Seconds}
                 className="py-4 rounded-2xl text-sm font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center gap-1 transition cursor-pointer"
-                title="Добавить 15 секунд"
+                title={t.add15Title}
               >
-                <Plus size={16} /> 15 сек
+                <Plus size={16} /> {t.btn15s}
               </button>
 
               <button
@@ -762,7 +737,7 @@ export const JudgeDashboardPage = () => {
                 onClick={handleResetTimer}
                 className="py-4 rounded-2xl text-sm sm:text-base font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center gap-1.5 transition cursor-pointer"
               >
-                <RotateCcw size={18} /> Сброс
+                <RotateCcw size={18} /> {t.btnReset}
               </button>
             </div>
           </div>
@@ -773,16 +748,16 @@ export const JudgeDashboardPage = () => {
           <div className="space-y-6">
             <div className="bg-white p-5 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm space-y-5">
               <div>
-                <h2 className="text-base sm:text-lg font-bold text-slate-900">Личные данные</h2>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900">{t.personalDataTitle}</h2>
                 <p className="text-xs sm:text-sm text-slate-500">
-                  Обновите ваше имя или адрес электронной почты
+                  {t.personalDataDesc}
                 </p>
               </div>
 
               <form onSubmit={handleUpdateProfile} className="space-y-4">
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Ваше имя
+                    {t.yourNameLabel}
                   </label>
                   <div className="relative">
                     <User
@@ -801,7 +776,7 @@ export const JudgeDashboardPage = () => {
 
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Email (Электронная почта)
+                    {t.emailLabel}
                   </label>
                   <div className="relative">
                     <Mail
@@ -823,23 +798,23 @@ export const JudgeDashboardPage = () => {
                   disabled={savingProfile}
                   className="w-full sm:w-auto px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-bold transition shadow-sm cursor-pointer disabled:opacity-50"
                 >
-                  {savingProfile ? 'Сохранение...' : 'Сохранить изменения'}
+                  {savingProfile ? t.savingBtn : t.saveChangesBtn}
                 </button>
               </form>
             </div>
 
             <div className="bg-white p-5 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm space-y-5">
               <div>
-                <h2 className="text-base sm:text-lg font-bold text-slate-900">Безопасность и пароль</h2>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900">{t.securityTitle}</h2>
                 <p className="text-xs sm:text-sm text-slate-500">
-                  Регулярно меняйте пароль для защиты аккаунта
+                  {t.securityDesc}
                 </p>
               </div>
 
               <form onSubmit={handleChangePassword} className="space-y-4">
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Текущий пароль
+                    {t.currentPassLabel}
                   </label>
                   <div className="relative">
                     <Lock
@@ -859,7 +834,7 @@ export const JudgeDashboardPage = () => {
 
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Новый пароль
+                    {t.newPassLabel}
                   </label>
                   <div className="relative">
                     <Lock
@@ -879,7 +854,7 @@ export const JudgeDashboardPage = () => {
 
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Подтвердите новый пароль
+                    {t.confirmPassLabel}
                   </label>
                   <div className="relative">
                     <Lock
@@ -902,7 +877,7 @@ export const JudgeDashboardPage = () => {
                   disabled={savingPassword}
                   className="w-full sm:w-auto px-5 py-3 bg-rhetora-teal hover:bg-sky-600 text-white rounded-xl text-sm font-bold transition shadow-sm cursor-pointer disabled:opacity-50"
                 >
-                  {savingPassword ? 'Изменение...' : 'Изменить пароль'}
+                  {savingPassword ? t.changingBtn : t.changePassBtn}
                 </button>
               </form>
             </div>
