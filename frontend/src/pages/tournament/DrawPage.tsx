@@ -12,6 +12,7 @@ import {
   X,
   Download,
   GitBranch,
+  Users,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -32,6 +33,18 @@ const PLAYOFF_STAGE_LABELS: Record<string, string> = {
   SEMIFINAL: 'Полуфинал',
   GRAND_FINAL: 'Гранд-финал',
 };
+
+const shuffleArray = <T,>(arr: T[]): T[] => {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+};
+
+const isAssemblyHallRoom = (room: any) =>
+  Boolean(room?.name && room.name.toLowerCase().includes('актов'));
 
 const DrawSkeleton = () => (
   <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm overflow-hidden text-sm w-full">
@@ -148,6 +161,132 @@ export const DrawPage = () => {
     }
   };
 
+  const excludeAssemblyHallFromMatches = async (roundMatches: any[], allRooms: any[]) => {
+    const assemblyRoomIds = new Set(
+      allRooms.filter(isAssemblyHallRoom).map((r: any) => r.id)
+    );
+    const usedRoomIds = new Set(
+      roundMatches.map((m: any) => m.roomId).filter(Boolean)
+    );
+    const freeRegularRooms = allRooms.filter(
+      (r: any) => !isAssemblyHallRoom(r) && !usedRoomIds.has(r.id)
+    );
+
+    for (const match of roundMatches) {
+      const hasAssemblyRoom =
+        (match.roomId && assemblyRoomIds.has(match.roomId)) ||
+        isAssemblyHallRoom(match.room);
+
+      if (hasAssemblyRoom) {
+        const replacementRoom = freeRegularRooms.shift();
+        await fetch(`${API_BASE}/api/tournaments/matches/${match.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ roomId: replacementRoom ? replacementRoom.id : '' }),
+        });
+      }
+    }
+  };
+
+  const distributeJudgesForMatches = async (roundMatches: any[], allJudges: any[]) => {
+    if (!roundMatches.length || !allJudges.length) return;
+
+    const busyJudgeIds = new Set<string>();
+    roundMatches.forEach((m) => {
+      (m.judges || []).forEach((j: any) => {
+        if (j.judgeId) busyJudgeIds.add(j.judgeId);
+        if (j.judge?.id) busyJudgeIds.add(j.judge.id);
+      });
+    });
+
+    const freeJudges = shuffleArray(
+      allJudges.filter((j) => !busyJudgeIds.has(j.id) && j.isActive !== false && j.status !== 'INACTIVE')
+    );
+
+    if (freeJudges.length === 0) return;
+
+    const roomStates = roundMatches.map((m) => {
+      const gov = m.teams?.find((t: any) => t.position === 'GOV')?.team;
+      const opp = m.teams?.find((t: any) => t.position === 'OPP')?.team;
+      const hasChair = (m.judges || []).some((j: any) => j.isChair);
+      const orgs = [gov?.organization, opp?.organization]
+        .filter(Boolean)
+        .map((o: string) => o.trim().toLowerCase());
+      const league = m.league || gov?.league || opp?.league || null;
+
+      return {
+        id: m.id,
+        hasChair,
+        judgeCount: (m.judges || []).length,
+        orgs,
+        league,
+      };
+    });
+
+    const pickBestJudgeIndex = (room: (typeof roomStates)[number], pool: any[]) => {
+      let idx = pool.findIndex((j) => {
+        const sameLeague = !j.league || !room.league || j.league === room.league;
+        const judgeOrg = j.organization ? j.organization.trim().toLowerCase() : '';
+        const noConflict = !judgeOrg || !room.orgs.includes(judgeOrg);
+        return sameLeague && noConflict;
+      });
+      if (idx !== -1) return idx;
+
+      idx = pool.findIndex((j) => !j.league || !room.league || j.league === room.league);
+      if (idx !== -1) return idx;
+
+      return 0;
+    };
+
+    // 1. Сначала закрываем пустые места Чейров в комнатах
+    for (const room of roomStates) {
+      if (!room.hasChair && freeJudges.length > 0) {
+        const judgeIdx = pickBestJudgeIndex(room, freeJudges);
+        const [chair] = freeJudges.splice(judgeIdx, 1);
+
+        await fetch(`${API_BASE}/api/tournaments/matches/${room.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ judgeId: chair.id }),
+        });
+
+        room.hasChair = true;
+        room.judgeCount += 1;
+      }
+    }
+
+    // 2. Всех оставшихся свободных судей равномерно раскидываем боковыми (панелистами)
+    const activeRooms = roomStates.filter((r) => r.hasChair);
+    if (activeRooms.length === 0) return;
+
+    while (freeJudges.length > 0) {
+      const judge = freeJudges.shift()!;
+      const judgeOrg = judge.organization ? judge.organization.trim().toLowerCase() : '';
+
+      activeRooms.sort((a, b) => {
+        if (a.judgeCount !== b.judgeCount) return a.judgeCount - b.judgeCount;
+
+        const aLeagueOk = !judge.league || !a.league || judge.league === a.league ? 0 : 1;
+        const bLeagueOk = !judge.league || !b.league || judge.league === b.league ? 0 : 1;
+        if (aLeagueOk !== bLeagueOk) return aLeagueOk - bLeagueOk;
+
+        const aConflict = judgeOrg && a.orgs.includes(judgeOrg) ? 1 : 0;
+        const bConflict = judgeOrg && b.orgs.includes(judgeOrg) ? 1 : 0;
+        return aConflict - bConflict;
+      });
+
+      const targetRoom = activeRooms[0];
+
+      await fetch(`${API_BASE}/api/tournaments/matches/${targetRoom.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ addPanellist: judge.id }),
+      });
+
+      targetRoom.judgeCount += 1;
+    }
+  };
+
   const executeGenerate = async () => {
     if (!selectedRoundId) return;
     setShowConfirmModal(false);
@@ -159,8 +298,27 @@ export const DrawPage = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
-        showSuccess('Жеребьёвка сгенерирована!');
+        const [drawRes, judgesRes, roomsRes] = await Promise.all([
+          fetch(`${API_BASE}/api/tournaments/${tournamentId}/rounds/${selectedRoundId}/draw`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE}/api/tournaments/${tournamentId}/judges`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE}/api/tournaments/${tournamentId}/rooms`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
+        const generatedMatches = await drawRes.json();
+        const latestJudges = await judgesRes.json();
+        const latestRooms = await roomsRes.json();
+        setJudges(latestJudges);
+        setRooms(latestRooms);
+
+        await excludeAssemblyHallFromMatches(generatedMatches, latestRooms);
+        await distributeJudgesForMatches(generatedMatches, latestJudges);
         await fetchDraw(selectedRoundId);
+        showSuccess('Жеребьёвка и судьи распределены!');
       } else {
         showError('Ошибка генерации');
         setIsFetchingDraw(false);
@@ -170,6 +328,26 @@ export const DrawPage = () => {
       setIsFetchingDraw(false);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAutoAssignJudges = async () => {
+    if (!selectedRoundId || matches.length === 0) return;
+    setSavingAction(true);
+    try {
+      const judgesRes = await fetch(`${API_BASE}/api/tournaments/${tournamentId}/judges`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const latestJudges = await judgesRes.json();
+      setJudges(latestJudges);
+
+      await distributeJudgesForMatches(matches, latestJudges);
+      await fetchDraw(selectedRoundId);
+      showSuccess('Свободные судьи распределены!');
+    } catch (err) {
+      showError('Ошибка распределения судей');
+    } finally {
+      setSavingAction(false);
     }
   };
 
@@ -377,13 +555,24 @@ export const DrawPage = () => {
           </div>
 
           {matches.length > 0 && !isFetchingDraw && (
-            <button
-              onClick={handleDownloadPdf}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl text-sm font-semibold transition text-slate-700 shadow-sm cursor-pointer"
-              title="Скачать PDF лист жеребьевки"
-            >
-              <Download size={16} /> PDF
-            </button>
+            <>
+              <button
+                onClick={handleDownloadPdf}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl text-sm font-semibold transition text-slate-700 shadow-sm cursor-pointer"
+                title="Скачать PDF лист жеребьевки"
+              >
+                <Download size={16} /> PDF
+              </button>
+
+              <button
+                onClick={handleAutoAssignJudges}
+                disabled={loading || savingAction}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl text-sm font-semibold transition text-slate-700 shadow-sm cursor-pointer"
+                title="Раскидать оставшихся судей по комнатам"
+              >
+                <Users size={16} /> Раскидать судей
+              </button>
+            </>
           )}
 
           <button
